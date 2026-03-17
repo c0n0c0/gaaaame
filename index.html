@@ -3,185 +3,217 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>サイバー・エスケープ</title>
+    <title>NEON SURVIVOR</title>
     <style>
         body {
             margin: 0;
-            background: #000;
-            color: #0f0;
-            font-family: 'Courier New', Courier, monospace;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            overflow: hidden;
-            user-select: none;
-            touch-action: none;
-        }
-
-        #game-info {
-            width: 400px;
-            display: flex;
-            justify-content: space-between;
-            font-size: 1.2rem;
-            margin-bottom: 10px;
-        }
-
-        canvas {
-            border: 2px solid #0f0;
             background: #050505;
-            box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
-            max-width: 95vw;
+            color: #fff;
+            font-family: 'Segoe UI', sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
         }
-
-        .msg {
-            margin-top: 15px;
-            text-align: center;
+        canvas {
+            background: #000;
+            border: 4px solid #333;
+            box-shadow: 0 0 50px rgba(0, 255, 255, 0.2);
+            cursor: none;
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: none;
+        }
+        .stat { font-size: 20px; font-weight: bold; margin-bottom: 5px; }
+        #msg {
+            position: absolute;
+            font-size: 40px;
+            font-weight: 900;
+            color: #ff0055;
+            text-shadow: 0 0 20px #ff0055;
+            display: none;
         }
     </style>
 </head>
 <body>
 
-    <div id="game-info">
-        <div>SCORE: <span id="score">0</span></div>
-        <div>BEST: <span id="best">0</span></div>
+    <div id="ui">
+        <div class="stat" style="color: #0ff;">SCORE: <span id="score">0</span></div>
+        <div class="stat" style="color: #f0f;">LEVEL: <span id="level">1</span></div>
+        <div class="stat" style="color: #ff0;">EXP: <span id="exp">0</span> / 10</div>
     </div>
+    <div id="msg">GAME OVER</div>
 
-    <canvas id="gameCanvas" width="400" height="500"></canvas>
-
-    <div class="msg">
-        クリック（またはスペースキー）で上昇！<br>
-        障害物を避けて進め！
-    </div>
+    <canvas id="gameCanvas"></canvas>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreEl = document.getElementById('score');
-        const bestEl = document.getElementById('best');
+        const levelEl = document.getElementById('level');
+        const expEl = document.getElementById('exp');
+        const msgEl = document.getElementById('msg');
 
-        // ゲーム状態
+        canvas.width = 600;
+        canvas.height = 700;
+
         let score = 0;
-        let best = 0;
-        let gameActive = false;
+        let level = 1;
+        let exp = 0;
+        let gameActive = true;
+        let frame = 0;
 
-        // プレイヤー設定
-        const player = {
-            x: 50,
-            y: 250,
-            width: 30,
-            height: 20,
-            gravity: 0.25,
-            lift: -6,
-            velocity: 0
-        };
+        const player = { x: 300, y: 600, r: 8, color: '#0ff' };
+        let bullets = [];
+        let particles = [];
+        let gems = [];
 
-        // 障害物の設定
-        let obstacles = [];
-        const obsWidth = 50;
-        const obsGap = 150; // 通過できる隙間
+        // マウス移動で自機を操作
+        window.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            player.x = e.clientX - rect.left;
+            player.y = e.clientY - rect.top;
+        });
 
-        function resetGame() {
-            score = 0;
-            player.y = 250;
-            player.velocity = 0;
-            obstacles = [];
-            gameActive = true;
-            scoreEl.innerText = score;
+        function spawnBullet() {
+            // レベルが上がると弾の種類が増える
+            const speed = 2 + (level * 0.5);
+            const r = 4 + Math.random() * 4;
+            bullets.push({
+                x: Math.random() * canvas.width,
+                y: -10,
+                vx: (Math.random() - 0.5) * 2,
+                vy: speed,
+                r: r,
+                color: `hsl(${280 + Math.random() * 60}, 100%, 60%)`
+            });
         }
 
-        function spawnObstacle() {
-            const minHeight = 50;
-            const maxHeight = canvas.height - obsGap - minHeight;
-            const topHeight = Math.floor(Math.random() * (maxHeight - minHeight + 1)) + minHeight;
-            
-            obstacles.push({
-                x: canvas.width,
-                top: topHeight,
-                passed: false
-            });
+        function createParticles(x, y, color, count) {
+            for (let i = 0; i < count; i++) {
+                particles.push({
+                    x, y,
+                    vx: (Math.random() - 0.5) * 10,
+                    vy: (Math.random() - 0.5) * 10,
+                    life: 1.0,
+                    color
+                });
+            }
         }
 
         function update() {
             if (!gameActive) return;
+            frame++;
 
-            // プレイヤー物理計算
-            player.velocity += player.gravity;
-            player.y += player.velocity;
+            // 弾の生成頻度アップ
+            if (frame % Math.max(2, 10 - level) === 0) spawnBullet();
 
-            // 天井と床の判定
-            if (player.y > canvas.height - player.height || player.y < 0) {
-                gameOver();
-            }
+            // 弾の移動
+            bullets.forEach((b, i) => {
+                b.x += b.vx;
+                b.y += b.vy;
 
-            // 障害物の移動と判定
-            if (obstacles.length === 0 || obstacles[obstacles.length - 1].x < canvas.width - 200) {
-                spawnObstacle();
-            }
+                // 衝突判定（円同士）
+                const dx = b.x - player.x;
+                const dy = b.y - player.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
 
-            for (let i = obstacles.length - 1; i >= 0; i--) {
-                let o = obstacles[i];
-                o.x -= 3; // スピード
-
-                // 衝突判定
-                if (
-                    player.x < o.x + obsWidth &&
-                    player.x + player.width > o.x &&
-                    (player.y < o.top || player.y + player.height > o.top + obsGap)
-                ) {
-                    gameOver();
-                }
-
-                // スコア加算
-                if (!o.passed && o.x + obsWidth < player.x) {
-                    o.passed = true;
-                    score++;
+                if (dist < b.r + player.r) {
+                    endGame();
+                } else if (dist < b.r + player.r + 20) {
+                    // かすりボーナス
+                    score += 1;
                     scoreEl.innerText = score;
                 }
 
-                // 画面外に出た障害物を削除
-                if (o.x < -obsWidth) {
-                    obstacles.splice(i, 1);
+                if (b.y > canvas.height) {
+                    // 画面外で消滅時にたまに経験値ジェムを落とす
+                    if (Math.random() > 0.7) {
+                        gems.push({ x: b.x, y: canvas.height - 20, vy: -2 });
+                    }
+                    bullets.splice(i, 1);
                 }
-            }
+            });
+
+            // ジェム（経験値）の移動と回収
+            gems.forEach((g, i) => {
+                g.y += 1;
+                const dx = g.x - player.x;
+                const dy = g.y - player.y;
+                if (Math.sqrt(dx*dx + dy*dy) < 30) {
+                    exp++;
+                    createParticles(g.x, g.y, '#ff0', 5);
+                    gems.splice(i, 1);
+                    if (exp >= level * 10) {
+                        level++;
+                        exp = 0;
+                        createParticles(player.x, player.y, '#0ff', 20);
+                    }
+                }
+                if (g.y > canvas.height) gems.splice(i, 1);
+            });
+
+            // パーティクル
+            particles.forEach((p, i) => {
+                p.x += p.vx; p.y += p.vy;
+                p.life -= 0.02;
+                if (p.life <= 0) particles.splice(i, 1);
+            });
+
+            updateUI();
         }
 
         function draw() {
-            // 背景クリア
-            ctx.fillStyle = '#050505';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'; // 残像エフェクト
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // プレイヤー描画
-            ctx.fillStyle = '#0f0';
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = '#0f0';
-            ctx.fillRect(player.x, player.y, player.width, player.height);
+            // ジェム描画
+            ctx.fillStyle = '#ff0';
+            gems.forEach(g => ctx.fillRect(g.x, g.y, 6, 6));
 
-            // 障害物描画
-            ctx.fillStyle = '#0a0';
-            ctx.shadowBlur = 0;
-            obstacles.forEach(o => {
-                // 上の柱
-                ctx.fillRect(o.x, 0, obsWidth, o.top);
-                // 下の柱
-                ctx.fillRect(o.x, o.top + obsGap, obsWidth, canvas.height - (o.top + obsGap));
+            // 弾描画
+            bullets.forEach(b => {
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
+                ctx.fillStyle = b.color;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = b.color;
+                ctx.fill();
+                ctx.closePath();
             });
 
-            if (!gameActive) {
-                ctx.fillStyle = 'rgba(0, 255, 0, 0.8)';
-                ctx.font = '24px "Courier New"';
-                ctx.textAlign = 'center';
-                ctx.fillText('CLICK TO START', canvas.width / 2, canvas.height / 2);
-            }
+            // 自機描画
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.r, 0, Math.PI*2);
+            ctx.fillStyle = player.color;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = '#0ff';
+            ctx.fill();
+            ctx.closePath();
+
+            // パーティクル描画
+            particles.forEach(p => {
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, 3, 3);
+            });
+            ctx.globalAlpha = 1.0;
         }
 
-        function gameOver() {
+        function updateUI() {
+            scoreEl.innerText = score;
+            levelEl.innerText = level;
+            expEl.innerText = exp;
+        }
+
+        function endGame() {
             gameActive = false;
-            if (score > best) {
-                best = score;
-                bestEl.innerText = best;
-            }
+            msgEl.style.display = 'block';
+            canvas.style.cursor = 'default';
         }
 
         function loop() {
@@ -190,18 +222,8 @@
             requestAnimationFrame(loop);
         }
 
-        // 入力処理
-        function handleAction() {
-            if (!gameActive) {
-                resetGame();
-            } else {
-                player.velocity = player.lift;
-            }
-        }
-
-        window.addEventListener('mousedown', handleAction);
-        window.addEventListener('keydown', (e) => {
-            if (e.code === 'Space') handleAction();
+        canvas.addEventListener('click', () => {
+            if (!gameActive) location.reload();
         });
 
         loop();
