@@ -3,243 +3,208 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ランダム・リズム・アクション</title>
+    <title>サイバー・エスケープ</title>
     <style>
-        :root {
-            --bg-color: #050505;
-            --target-color: #00ffcc;
-            --accent-color: #ff00ff;
-            --text-color: #ffffff;
-        }
-
         body {
             margin: 0;
-            padding: 0;
+            background: #000;
+            color: #0f0;
+            font-family: 'Courier New', Courier, monospace;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             height: 100vh;
-            background-color: var(--bg-color);
-            font-family: 'Courier New', Courier, monospace;
-            color: var(--text-color);
             overflow: hidden;
             user-select: none;
             touch-action: none;
         }
 
-        /* ゲームのメインステージ（この範囲内にランダムで出現） */
-        #game-stage {
-            position: relative;
-            width: 90vw;
-            height: 70vh;
-            border: 2px solid rgba(255, 255, 255, 0.1);
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: 10px;
-            overflow: hidden;
-        }
-
-        #ui-layer {
-            width: 90vw;
+        #game-info {
+            width: 400px;
             display: flex;
             justify-content: space-between;
-            align-items: center;
+            font-size: 1.2rem;
             margin-bottom: 10px;
         }
 
-        .stats {
-            font-size: 1.2rem;
-            font-weight: bold;
+        canvas {
+            border: 2px solid #0f0;
+            background: #050505;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+            max-width: 95vw;
         }
 
-        #judge-overlay {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 4rem;
-            font-weight: 900;
-            pointer-events: none;
-            z-index: 100;
-            opacity: 0;
-            transition: opacity 0.1s;
-        }
-
-        /* 動くターゲット */
-        #target-container {
-            position: absolute;
-            width: 120px;
-            height: 120px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transform: translate(-50%, -50%); /* 中心合わせ */
-        }
-
-        #target-core {
-            width: 40px;
-            height: 40px;
-            background-color: var(--target-color);
-            border-radius: 50%;
-            box-shadow: 0 0 20px var(--target-color);
-            z-index: 5;
-        }
-
-        .ring {
-            position: absolute;
-            border: 2px solid var(--text-color);
-            border-radius: 50%;
-            pointer-events: none;
-        }
-
-        #combo-info {
-            color: var(--accent-color);
-            font-size: 1.5rem;
+        .msg {
+            margin-top: 15px;
+            text-align: center;
         }
     </style>
 </head>
 <body>
 
-    <div id="ui-layer">
-        <div class="stats" id="score-display">SCORE: 0</div>
-        <div id="combo-info"></div>
-        <div class="stats" id="level-display">LEVEL: 1</div>
+    <div id="game-info">
+        <div>SCORE: <span id="score">0</span></div>
+        <div>BEST: <span id="best">0</span></div>
     </div>
 
-    <div id="game-stage" id="stage">
-        <div id="judge-overlay">PERFECT</div>
-        <div id="target-container" style="display: none;">
-            <div id="target-core"></div>
-        </div>
-    </div>
+    <canvas id="gameCanvas" width="400" height="500"></canvas>
 
-    <p style="margin-top: 15px; opacity: 0.6;">出現するターゲットを素早くクリック！</p>
+    <div class="msg">
+        クリック（またはスペースキー）で上昇！<br>
+        障害物を避けて進め！
+    </div>
 
     <script>
-        const stage = document.getElementById('game-stage');
-        const targetContainer = document.getElementById('target-container');
-        const scoreEl = document.getElementById('score-display');
-        const levelEl = document.getElementById('level-display');
-        const comboEl = document.getElementById('combo-info');
-        const judgeEl = document.getElementById('judge-overlay');
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const bestEl = document.getElementById('best');
 
+        // ゲーム状態
         let score = 0;
-        let combo = 0;
-        let level = 1;
-        let ringScale = 4.0;
-        let animationId = null;
-        let currentRing = null;
-        
-        const BASE_SPEED = 0.03;
-        const SPEED_INC = 0.003;
+        let best = 0;
+        let gameActive = false;
 
-        // ランダムな位置にターゲットを移動
-        function moveTarget() {
-            const margin = 100; // 端に寄りすぎないためのマージン
-            const maxX = stage.clientWidth - margin;
-            const maxY = stage.clientHeight - margin;
-            
-            const randomX = Math.floor(Math.random() * (maxX - margin)) + margin;
-            const randomY = Math.floor(Math.random() * (maxY - margin)) + margin;
+        // プレイヤー設定
+        const player = {
+            x: 50,
+            y: 250,
+            width: 30,
+            height: 20,
+            gravity: 0.25,
+            lift: -6,
+            velocity: 0
+        };
 
-            targetContainer.style.left = `${randomX}px`;
-            targetContainer.style.top = `${randomY}px`;
-            targetContainer.style.display = 'flex';
+        // 障害物の設定
+        let obstacles = [];
+        const obsWidth = 50;
+        const obsGap = 150; // 通過できる隙間
+
+        function resetGame() {
+            score = 0;
+            player.y = 250;
+            player.velocity = 0;
+            obstacles = [];
+            gameActive = true;
+            scoreEl.innerText = score;
         }
 
-        function spawnNext() {
-            resetRing();
-            moveTarget();
-            ringScale = 4.0;
+        function spawnObstacle() {
+            const minHeight = 50;
+            const maxHeight = canvas.height - obsGap - minHeight;
+            const topHeight = Math.floor(Math.random() * (maxHeight - minHeight + 1)) + minHeight;
             
-            const ring = document.createElement('div');
-            ring.className = 'ring';
-            targetContainer.appendChild(ring);
-            currentRing = ring;
-            
-            animate();
+            obstacles.push({
+                x: canvas.width,
+                top: topHeight,
+                passed: false
+            });
         }
 
-        function animate() {
-            if (!currentRing) return;
+        function update() {
+            if (!gameActive) return;
 
-            const speed = BASE_SPEED + (level * SPEED_INC);
-            ringScale -= speed;
+            // プレイヤー物理計算
+            player.velocity += player.gravity;
+            player.y += player.velocity;
 
-            const size = 40 * ringScale; // コアのサイズ(40)基準
-            currentRing.style.width = size + 'px';
-            currentRing.style.height = size + 'px';
+            // 天井と床の判定
+            if (player.y > canvas.height - player.height || player.y < 0) {
+                gameOver();
+            }
 
-            if (ringScale <= 0.8) {
-                showJudge("MISS", "#ff4757");
-                combo = 0;
-                updateUI();
-                setTimeout(spawnNext, 500);
+            // 障害物の移動と判定
+            if (obstacles.length === 0 || obstacles[obstacles.length - 1].x < canvas.width - 200) {
+                spawnObstacle();
+            }
+
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                let o = obstacles[i];
+                o.x -= 3; // スピード
+
+                // 衝突判定
+                if (
+                    player.x < o.x + obsWidth &&
+                    player.x + player.width > o.x &&
+                    (player.y < o.top || player.y + player.height > o.top + obsGap)
+                ) {
+                    gameOver();
+                }
+
+                // スコア加算
+                if (!o.passed && o.x + obsWidth < player.x) {
+                    o.passed = true;
+                    score++;
+                    scoreEl.innerText = score;
+                }
+
+                // 画面外に出た障害物を削除
+                if (o.x < -obsWidth) {
+                    obstacles.splice(i, 1);
+                }
+            }
+        }
+
+        function draw() {
+            // 背景クリア
+            ctx.fillStyle = '#050505';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // プレイヤー描画
+            ctx.fillStyle = '#0f0';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#0f0';
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+
+            // 障害物描画
+            ctx.fillStyle = '#0a0';
+            ctx.shadowBlur = 0;
+            obstacles.forEach(o => {
+                // 上の柱
+                ctx.fillRect(o.x, 0, obsWidth, o.top);
+                // 下の柱
+                ctx.fillRect(o.x, o.top + obsGap, obsWidth, canvas.height - (o.top + obsGap));
+            });
+
+            if (!gameActive) {
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.8)';
+                ctx.font = '24px "Courier New"';
+                ctx.textAlign = 'center';
+                ctx.fillText('CLICK TO START', canvas.width / 2, canvas.height / 2);
+            }
+        }
+
+        function gameOver() {
+            gameActive = false;
+            if (score > best) {
+                best = score;
+                bestEl.innerText = best;
+            }
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        // 入力処理
+        function handleAction() {
+            if (!gameActive) {
+                resetGame();
             } else {
-                animationId = requestAnimationFrame(animate);
+                player.velocity = player.lift;
             }
         }
 
-        function handleInput(e) {
-            if (!currentRing) return;
-            e.stopPropagation();
-
-            cancelAnimationFrame(animationId);
-            const diff = Math.abs(ringScale - 1.0);
-
-            if (diff < 0.15) {
-                score += 100 + (combo * 10);
-                combo++;
-                showJudge("PERFECT", "#00ffcc");
-            } else if (diff < 0.4) {
-                score += 50;
-                combo++;
-                showJudge("GREAT", "#f1c40f");
-            } else {
-                combo = 0;
-                showJudge("EARLY", "#95a5a6");
-            }
-
-            level = Math.floor(score / 1000) + 1;
-            updateUI();
-            setTimeout(spawnNext, 150);
-        }
-
-        function resetRing() {
-            if (currentRing) {
-                currentRing.remove();
-                currentRing = null;
-            }
-        }
-
-        function showJudge(text, color) {
-            judgeEl.innerText = text;
-            judgeEl.style.color = color;
-            judgeEl.style.opacity = 1;
-            setTimeout(() => { judgeEl.style.opacity = 0; }, 400);
-        }
-
-        function updateUI() {
-            scoreEl.innerText = `SCORE: ${score}`;
-            levelEl.innerText = `LEVEL: ${level}`;
-            comboEl.innerText = combo >= 2 ? `${combo} COMBO` : "";
-        }
-
-        // イベント登録
-        targetContainer.addEventListener('mousedown', handleInput);
-        
-        // ステージ外クリックもミス判定にするなら（オプション）
-        stage.addEventListener('mousedown', (e) => {
-            if(e.target === stage) {
-                combo = 0;
-                showJudge("MISS", "#ff4757");
-                updateUI();
-            }
+        window.addEventListener('mousedown', handleAction);
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') handleAction();
         });
 
-        // 開始
-        spawnNext();
+        loop();
     </script>
 </body>
 </html>
