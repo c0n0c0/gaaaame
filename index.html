@@ -1,1 +1,246 @@
-ゲームつくる
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>リズム・マスター・プロ</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --target-color: #38bdf8;
+            --accent-color: #f43f5e;
+            --text-color: #f1f5f9;
+        }
+
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background-color: var(--bg-color);
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            color: var(--text-color);
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            text-align: center;
+            width: 100%;
+        }
+
+        #score-board {
+            font-size: 1.5rem;
+            margin: 0;
+            opacity: 0.8;
+        }
+
+        #combo-count {
+            font-size: 3rem;
+            font-weight: 900;
+            color: var(--accent-color);
+            margin: 10px 0;
+            text-shadow: 0 0 10px rgba(244, 63, 94, 0.5);
+            display: none; /* コンボがない時は隠す */
+        }
+
+        #judge-text {
+            font-size: 1.8rem;
+            font-weight: bold;
+            height: 2rem;
+            text-transform: uppercase;
+        }
+
+        #game-area {
+            position: relative;
+            width: 400px;
+            height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #target-btn {
+            width: 100px;
+            height: 100px;
+            background: radial-gradient(circle, var(--target-color), #0ea5e9);
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 10;
+            box-shadow: 0 0 30px rgba(56, 189, 248, 0.4);
+            border: 4px solid rgba(255,255,255,0.2);
+            transition: transform 0.05s;
+        }
+
+        #target-btn:active {
+            transform: scale(0.85);
+        }
+
+        .ring {
+            position: absolute;
+            border: 3px solid #fff;
+            border-radius: 50%;
+            pointer-events: none;
+            box-shadow: 0 0 10px #fff;
+        }
+
+        .level-badge {
+            position: absolute;
+            bottom: 30px;
+            padding: 5px 15px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <p id="score-board">SCORE: 0</p>
+        <div id="combo-count">0 COMBO</div>
+        <div id="judge-text">TAP TO START</div>
+    </div>
+
+    <div id="game-area">
+        <div id="target-btn"></div>
+    </div>
+
+    <div class="level-badge" id="level-display">LEVEL: 1</div>
+
+    <script>
+        const targetBtn = document.getElementById('target-btn');
+        const scoreEl = document.getElementById('score-board');
+        const comboEl = document.getElementById('combo-count');
+        const judgeEl = document.getElementById('judge-text');
+        const levelEl = document.getElementById('level-display');
+        const gameArea = document.getElementById('game-area');
+
+        let score = 0;
+        let combo = 0;
+        let level = 1;
+        let currentRing = null;
+        let ringScale = 4.0;
+        let animationId = null;
+        let isGameRunning = false;
+        
+        // 設定値
+        let baseSpeed = 0.03;
+        const speedStep = 0.002; // レベルアップごとの加速量
+
+        function spawnRing() {
+            if (!isGameRunning) return;
+
+            ringScale = 4.0;
+            const ring = document.createElement('div');
+            ring.className = 'ring';
+            gameArea.appendChild(ring);
+            currentRing = ring;
+
+            animate();
+        }
+
+        function animate() {
+            if (!currentRing) return;
+
+            // レベルに応じて速度を計算
+            const currentSpeed = baseSpeed + (level * speedStep);
+            ringScale -= currentSpeed;
+
+            const size = 100 * ringScale;
+            currentRing.style.width = size + 'px';
+            currentRing.style.height = size + 'px';
+
+            if (ringScale <= 0.6) {
+                handleMiss();
+            } else {
+                animationId = requestAnimationFrame(animate);
+            }
+        }
+
+        function handleJudge() {
+            if (!isGameRunning) {
+                startGame();
+                return;
+            }
+            if (!currentRing) return;
+
+            cancelAnimationFrame(animationId);
+            const diff = Math.abs(ringScale - 1.0);
+
+            if (diff < 0.12) {
+                applyResult("PERFECT", "#22c55e", 100);
+            } else if (diff < 0.3) {
+                applyResult("GREAT", "#eab308", 50);
+            } else if (diff < 0.5) {
+                applyResult("GOOD", "#94a3b8", 20);
+            } else {
+                handleMiss();
+                return;
+            }
+
+            resetRing();
+            setTimeout(spawnRing, 200);
+        }
+
+        function applyResult(label, color, points) {
+            combo++;
+            score += points * (1 + Math.floor(combo / 10)); // コンボボーナス
+            level = Math.floor(score / 500) + 1; // 500点ごとにレベルアップ
+
+            judgeEl.innerText = label;
+            judgeEl.style.color = color;
+            scoreEl.innerText = `SCORE: ${score}`;
+            levelEl.innerText = `LEVEL: ${level}`;
+
+            if (combo >= 2) {
+                comboEl.innerText = `${combo} COMBO`;
+                comboEl.style.display = 'block';
+            }
+        }
+
+        function handleMiss() {
+            cancelAnimationFrame(animationId);
+            combo = 0;
+            comboEl.style.display = 'none';
+            judgeEl.innerText = "MISS";
+            judgeEl.style.color = "#f43f5e";
+            
+            resetRing();
+            setTimeout(spawnRing, 1000);
+        }
+
+        function resetRing() {
+            if (currentRing) {
+                currentRing.remove();
+                currentRing = null;
+            }
+        }
+
+        function startGame() {
+            isGameRunning = true;
+            score = 0;
+            combo = 0;
+            level = 1;
+            judgeEl.innerText = "";
+            spawnRing();
+        }
+
+        // 入力イベント
+        targetBtn.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            handleJudge();
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' || e.code === 'Enter') {
+                handleJudge();
+            }
+        });
+    </script>
+</body>
+</html>
